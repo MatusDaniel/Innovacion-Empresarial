@@ -267,7 +267,16 @@ body{font-family:'Barlow',sans-serif;font-size:14px;line-height:1.6;color:var(--
         <div class="res-titulo">Perfil de Innovación</div>
       </div>
     </div>
-    <div class="global-score-wrap">
+      <!-- ── Botón guardar en Google Sheets ── -->
+  <div id="sheets-bar" style="display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-bottom:28px">
+    <span id="sheets-msg" style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--gris3)"></span>
+    <button id="btn-sheets" onclick="guardarEnSheets()"
+      style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;padding:11px 28px;border:1.5px solid #34a853;background:transparent;color:#34a853;cursor:pointer;transition:all .2s"
+      onmouseover="this.style.background='rgba(52,168,83,.1)'" onmouseout="this.style.background='transparent'">
+      ↓ Guardar en Google Sheets
+    </button>
+  </div>
+  <div class="global-score-wrap">
       <div class="global-score-box">
         <div class="gs-label">Puntaje total</div>
         <div><span class="gs-num" id="res-total">—</span><span class="gs-denom"> / 150</span></div>
@@ -554,6 +563,98 @@ function renderRadar(dimScores){
 
 renderPreguntas();
 updateProgress();
+
+// ═══════════════════════════════════════════════════════════════
+//  IMIE-30 · Guardar en Google Sheets
+//  Reemplaza SHEETS_ENDPOINT con la URL de tu Apps Script
+// ═══════════════════════════════════════════════════════════════
+const SHEETS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxKe0_51xZJaaNU-E8P_fhWy9RlulaHJunNWdCDvZr_IC9cGnYMfsTOs-MZrFe4C3sK/exec';
+
+async function guardarEnSheets(){
+  const btn = document.getElementById('btn-sheets');
+  const msg = document.getElementById('sheets-msg');
+
+  // Verificar instrumento completo
+  const totalQ = 30;
+  const done = new Set(
+    Array.from(document.querySelectorAll('input[type=radio]:checked')).map(r=>r.name)
+  ).size;
+  if(done < totalQ){
+    msg.style.color='#ff8080';
+    msg.textContent=`⚠ Faltan ${totalQ-done} preguntas por responder`;
+    return;
+  }
+
+  btn.disabled=true;
+  btn.textContent='⏳ Guardando…';
+  msg.style.color='rgba(255,255,255,.5)';
+  msg.textContent='Enviando datos…';
+
+  // Ficha del respondiente
+  const nombre = document.getElementById('f-nombre')?.value.trim()||'—';
+  const cargo  = document.getElementById('f-cargo')?.value.trim() ||'—';
+  const org    = document.getElementById('f-org')?.value.trim()   ||'—';
+  const sector = document.getElementById('f-sector')?.value.trim()||'—';
+  const ant    = document.getElementById('f-ant')?.value.trim()   ||'—';
+  const fecha  = document.getElementById('f-fecha')?.value        ||new Date().toISOString().slice(0,10);
+
+  // Respuestas crudas
+  const respuestas={};
+  PREGUNTAS.forEach(p=>{
+    const checked=document.querySelector(`input[name="q${p.n}"]:checked`);
+    respuestas[`q${p.n}`]=checked?parseInt(checked.value):null;
+  });
+
+  // Puntajes corregidos
+  const scores={};
+  PREGUNTAS.forEach(p=>{
+    let v=respuestas[`q${p.n}`]??3;
+    if(INV.has(p.n)) v=6-v;
+    scores[p.n]=v;
+  });
+  const dimScores={};
+  DIMS.forEach(d=>{
+    dimScores[d.id]=d.items.reduce((s,n)=>s+(scores[n]||3),0);
+  });
+  const totalScore=Object.values(dimScores).reduce((a,b)=>a+b,0);
+  const nivelGlobal=getNivel(totalScore,true).lbl;
+
+  // ID único
+  const idRespuesta=Date.now().toString(36).toUpperCase()+'-'+
+    Math.random().toString(36).slice(2,6).toUpperCase();
+
+  // Payload
+  const payload={
+    id_respuesta:idRespuesta,
+    nombre,cargo,org,sector,ant,fecha,
+    D1:dimScores['D1'],D2:dimScores['D2'],D3:dimScores['D3'],
+    D4:dimScores['D4'],D5:dimScores['D5'],D6:dimScores['D6'],
+    total:totalScore,nivel:nivelGlobal,
+    ...respuestas
+  };
+
+  try{
+    await fetch(SHEETS_ENDPOINT,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    btn.textContent='✓ Guardado correctamente';
+    btn.style.borderColor='#34a853';
+    btn.style.color='#34a853';
+    msg.style.color='#34a853';
+    msg.textContent=`ID: ${idRespuesta}`;
+    btn.disabled=true;
+  }catch(err){
+    btn.disabled=false;
+    btn.textContent='↓ Guardar en Google Sheets';
+    msg.style.color='#ff8080';
+    msg.textContent='✗ Error de conexión. Intenta de nuevo.';
+    console.error('IMIE-30 Sheets error:',err);
+  }
+}
+
 </script>
 </body>
 </html>
